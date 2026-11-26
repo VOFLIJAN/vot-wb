@@ -1,0 +1,6 @@
+*
+!.gitignore
+!patch-vot.mjs
+!.github/
+!.github/workflows/
+!.github/workflows/build.yml

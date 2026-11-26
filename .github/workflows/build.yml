@@ -1,0 +1,30 @@
+name: build
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+  actions: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Scheduled workflows stop after 60 days without repo activity; re-enabling resets the timer.
+          gh api -X PUT "repos/$GITHUB_REPOSITORY/actions/workflows/build.yml/enable" || true
+          up=$(gh release view -R ilyhalight/voice-over-translation --json tagName -q .tagName)
+          rev=$(sed -n 's/^const PATCH_REV = \([0-9]*\);.*/\1/p' patch-vot.mjs)
+          tag="$up.$rev"
+          if gh release view "$tag" >/dev/null 2>&1; then echo "up to date: $tag"; exit 0; fi
+          gh release download "$up" -R ilyhalight/voice-over-translation -p vot.user.js -O src.user.js
+          node patch-vot.mjs src.user.js vot.user.js "https://github.com/$GITHUB_REPOSITORY/releases/latest/download"
+          node --check vot.user.js
+          sed '/^\/\/ ==\/UserScript==/q' vot.user.js > vot.meta.js
+          gh release create "$tag" vot.user.js vot.meta.js --title "$tag" --notes ""
