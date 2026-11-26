@@ -4,7 +4,7 @@
 // and its native helper has no network access. Falls back to the JSON envelope via GM.
 // usage: node patch-vot.mjs <in.user.js> <out.user.js> [release-download-base-url]
 // Bump PATCH_REV on every patch change: the published version is <upstream>.<PATCH_REV>.
-const PATCH_REV = 1;
+const PATCH_REV = 2;
 import fs from 'node:fs';
 const [,, input, output, distBase] = process.argv;
 let src = fs.readFileSync(input, 'utf8');
@@ -119,6 +119,21 @@ const ctxChecks = [
 ];
 for (const [from, to] of ctxChecks) {
 	if (src.split(from).length !== 2) throw new Error('AudioContext check not found exactly once: ' + from);
+	src = src.replace(from, to);
+}
+// Safari blocks audio start and loading in a hidden tab ("not allowed to load in background"),
+// and AudioContext.resume() can stay pending there, which stalls the player queue: the button
+// is blue, but the translation never starts after the tab is visible again.
+const bgFixes = [
+	['includes(this.chaimu.audioContext?.state)) await this.chaimu.audioContext.resume();', 'includes(this.chaimu.audioContext?.state)) await Promise.race([this.chaimu.audioContext.resume(), new Promise((r) => setTimeout(r, 1500))]);'],
+	['includes(this.chaimu.audioContext.state)) await this.chaimu.audioContext.resume();', 'includes(this.chaimu.audioContext.state)) await Promise.race([this.chaimu.audioContext.resume(), new Promise((r) => setTimeout(r, 1500))]);'],
+	['				await this.audio.play();', '				if (this.audio.readyState === 0) this.audio.load();\n				await this.audio.play();'],
+	['				await audioElement.play();', '				if (audioElement.readyState === 0) audioElement.load();\n				await audioElement.play();'],
+	['			for (const e of videoLipSyncEvents) video.addEventListener(e, this.handleVideoEvent);\n', '			for (const e of videoLipSyncEvents) video.addEventListener(e, this.handleVideoEvent);\n			if (!this.wblockVisibility) {\n				this.wblockVisibility = () => {\n					if (document.visibilityState === "visible" && !this.isDestroyed && this.chaimu.video && !this.chaimu.video.paused && !this.chaimu.video.ended) this.lipSync("playing");\n				};\n				document.addEventListener("visibilitychange", this.wblockVisibility);\n			}\n'],
+	['			for (const e of videoLipSyncEvents) video.removeEventListener(e, this.handleVideoEvent);\n', '			for (const e of videoLipSyncEvents) video.removeEventListener(e, this.handleVideoEvent);\n			if (this.wblockVisibility) {\n				document.removeEventListener("visibilitychange", this.wblockVisibility);\n				this.wblockVisibility = void 0;\n			}\n']
+];
+for (const [from, to] of bgFixes) {
+	if (src.split(from).length !== 2) throw new Error('background fix anchor not found exactly once: ' + from);
 	src = src.replace(from, to);
 }
 src = src.replace(/^(\/\/ @name {11}.*)$/m, '$1 (wBlock fix)');
